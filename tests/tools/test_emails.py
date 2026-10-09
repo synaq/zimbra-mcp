@@ -589,3 +589,26 @@ class TestGetEmailRaw:
         tools, client = self._client(email_tools, {})
         tools["get_email"]("5")
         assert client.get_message.call_count == 1
+
+
+class TestTrackingPixels:
+    def _out(self, img):
+        return _sanitize_html(f"<p>a</p>{img}", allow_images=True)
+
+    def test_one_by_one_attribute_pixel_removed(self):
+        assert "<img" not in self._out('<img width="1" height="1" dfsrc="https://t.test/o.gif">')
+
+    def test_single_tiny_dimension_removed(self):
+        assert "<img" not in self._out('<img height="0" src="https://t.test/o.gif">')
+
+    def test_css_sized_pixel_removed(self):
+        assert "<img" not in self._out('<img style="width:1px;height:1px" src="https://t.test/o.gif">')
+
+    def test_hidden_image_removed(self):
+        assert "<img" not in self._out('<img style="display:none" src="https://t.test/o.gif">')
+        assert "<img" not in self._out('<img style="visibility: hidden" src="https://t.test/o.gif">')
+
+    def test_real_images_kept(self):
+        assert "logo.png" in self._out('<img width="400" height="158" src="https://x.test/logo.png">')
+        assert "max-width:100%" in self._out('<img style="width:auto;max-width:100%" src="https://x.test/b.png">')
+        assert "banner.png" in self._out('<img src="https://x.test/banner.png">')

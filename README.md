@@ -84,7 +84,8 @@ is generated from the HTML.
   is quoted under a From/To/Cc/Sent/Subject header, using full names and the account's time zone
   (`zimbraPrefTimeZoneId`). Hosted `https` images are kept (Zimbra's `dfsrc` neutering is
   reversed); images with no usable source (`cid:` parts, `file:///` paths) are removed rather
-  than left as empty boxes. On Windows the `tzdata` package supplies the time-zone database.
+  than left as empty boxes. Tracking pixels (images hidden, or 1px or smaller in either
+  dimension) are removed so they don't load in the recipient's client. On Windows the `tzdata` package supplies the time-zone database.
 - **Update in place:** pass `draft_id` to `create_draft` to replace an existing draft's content
   instead of creating a new one.
 

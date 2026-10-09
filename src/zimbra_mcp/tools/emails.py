@@ -96,6 +96,26 @@ _STYLE_PROPERTIES = {
 }
 
 
+def _is_tracking_pixel(img: Any) -> bool:
+    """True for images that are hidden or at most 1px in either dimension.
+
+    Restoring dfsrc lets hosted images load in the recipient's client; this keeps the
+    common read-receipt pixels from loading with them. Real logos are never this small.
+    """
+    # ponytail: size/visibility heuristic only; a full-size tracking image still loads.
+    # A per-domain blocklist would be the next step if that ever matters.
+    style = re.sub(r"\s+", "", (img.get("style") or "").lower())
+    if "display:none" in style or "visibility:hidden" in style:
+        return True
+    sizes = [img.get("width"), img.get("height")]
+    sizes += re.findall(r"(?:^|;)(?:width|height):([\d.]+)px", style)
+    for size in sizes:
+        m = re.match(r"\s*([\d.]+)", str(size or ""))
+        if m and float(m.group(1)) <= 1:
+            return True
+    return False
+
+
 def _sanitize_html(html: str, allow_images: bool = False) -> str:
     """Reduce HTML to a safe formatting subset.
 
@@ -108,6 +128,9 @@ def _sanitize_html(html: str, allow_images: bool = False) -> str:
     if allow_images:
         soup = BeautifulSoup(html, "html.parser")
         for img in soup.find_all("img"):
+            if _is_tracking_pixel(img):
+                img.decompose()
+                continue
             if not img.get("src") and img.get("dfsrc"):
                 img["src"] = img["dfsrc"]
         html = str(soup)
