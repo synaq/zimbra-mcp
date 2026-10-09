@@ -39,6 +39,7 @@ class ZimbraClient:
         self.config = config
         self._comm: Communication | None = None
         self._token: str | None = None
+        self._timezone: str | None = None
 
     def connect(self) -> None:
         """Establish connection and authentication."""
@@ -158,6 +159,24 @@ class ZimbraClient:
             "m": {"id": msg_id, "html": 1, "raw": 1 if raw else 0},
         }
         return self.request("GetMsgRequest", "urn:zimbraMail", params)
+
+    def get_timezone(self) -> str:
+        """Return the account's time zone ID (zimbraPrefTimeZoneId), or "UTC" if unavailable.
+
+        Cached after the first successful read; errors fall back to UTC without caching.
+        """
+        if self._timezone is None:
+            try:
+                prefs = self.request(
+                    "GetPrefsRequest", "urn:zimbraAccount",
+                    {"pref": {"name": "zimbraPrefTimeZoneId"}},
+                )
+            except Exception:
+                return "UTC"
+            tz = prefs.get("_attrs", {}).get("zimbraPrefTimeZoneId") or "UTC"
+            self._timezone = tz
+            return tz
+        return self._timezone
 
     def get_folder(self, folder_path: str = "/") -> dict[str, Any]:
         """Retrieve a folder and its subfolders.

@@ -502,3 +502,119 @@ class TestHtmlToTextStructure:
         out = _html_to_text("<table><tr><td>Plan</td><td>Seats</td></tr><tr><td>SM</td><td>250</td></tr></table>")
         lines = [l.strip() for l in out.splitlines() if l.strip()]
         assert lines == ["Plan Seats", "SM 250"]
+
+
+# --- Fixes from the first Desktop test round ---
+
+
+class TestQuotedImages:
+    def test_zimbra_neutered_https_image_is_restored(self):
+        out = _sanitize_html('<img width="10" dfsrc="https://x.test/logo.png">', allow_images=True)
+        assert 'src="https://x.test/logo.png"' in out
+
+    def test_image_without_usable_source_is_removed(self):
+        html = ('<p>a</p><img width="400" height="158" '
+                'dfsrc="file:///C:/Users/j/Signatures/logo.png"><img src="cid:x"><img>')
+        assert "<img" not in _sanitize_html(html, allow_images=True)
+
+
+class TestFullNames:
+    def test_prefers_full_name_over_short_display(self):
+        addrs = [{"t": "f", "d": "Jonathan", "p": "Jonathan McCann", "a": "j@test.com"}]
+        assert _extract_address(addrs, "f") == "Jonathan McCann <j@test.com>"
+        assert _extract_addresses(addrs, "f") == ["Jonathan McCann <j@test.com>"]
+
+
+class TestLocalSentTime:
+    def test_quote_header_uses_account_time_zone(self, email_tools):
+        tools, client = email_tools
+        client.get_timezone = MagicMock(return_value="Africa/Harare")
+        client.get_message = MagicMock(return_value=HTML_ORIGINAL)  # d = 2023-11-14 22:13 UTC
+        client.create_draft = MagicMock(return_value={"m": {"id": "80"}})
+        tools["create_draft"](to=["j@test.com"], subject="RE", body_html="<p>x</p>",
+                              orig_msg_id="9", reply_type="r")
+        assert "2023-11-15 00:13" in client.create_draft.call_args.kwargs["body_html"]
+        assert "2023-11-15 00:13" in client.create_draft.call_args.args[2]
+
+    def test_falls_back_to_utc_when_zone_unknown(self, email_tools):
+        tools, client = email_tools
+        client.get_timezone = MagicMock(return_value="Not/AZone")
+        client.get_message = MagicMock(return_value=HTML_ORIGINAL)
+        client.create_draft = MagicMock(return_value={"m": {"id": "81"}})
+        tools["create_draft"](to=["j@test.com"], subject="RE", body_html="<p>x</p>",
+                              orig_msg_id="9", reply_type="r")
+        assert "2023-11-14 22:13" in client.create_draft.call_args.kwargs["body_html"]
+
+
+class TestNoStraySpaces:
+    def test_plain_text_has_no_space_before_punctuation(self):
+        assert _html_to_text("<p><b>Bold</b>, <i>italic</i>.</p>") == "Bold, italic."
+
+    def test_table_cells_still_separated(self):
+        assert _html_to_text("<table><tr><td>Plan</td><td>Seats</td></tr></table>").strip() == "Plan Seats"
+
+    def test_css_has_no_space_before_comma(self):
+        out = _sanitize_html('<p style="font-family:Arial, sans-serif">x</p>')
+        assert "Arial, sans-serif" in out
+
+    def test_css_comma_tidy_handles_single_quoted_style(self):
+        s = '<p style="font-family:&quot;Calibri&quot;, sans-serif">x</p>'
+        out = _sanitize_html(s, allow_images=True)
+        assert " ," not in out and "sans-serif" in out
+
+
+class TestGetEmailRaw:
+    PARSED = {"m": {"id": "5", "su": "Hello", "e": [{"t": "f", "p": "Jo Smith", "a": "jo@test.com"}],
+                    "mp": [{"ct": "text/plain", "content": "Body"}]}}
+
+    def _client(self, email_tools, raw_m):
+        tools, client = email_tools
+        client.get_message = MagicMock(side_effect=lambda mid, raw=False: {"m": raw_m} if raw else self.PARSED)
+        return tools, client
+
+    def test_raw_keeps_parsed_fields_and_unwraps_source(self, email_tools):
+        tools, _ = self._client(email_tools, {"id": "5", "content": {"_content": "Subject: Hello\r\n\r\nBody"}})
+        out = tools["get_email"]("5", include_raw=True)
+        assert out["subject"] == "Hello" and out["from"] == "Jo Smith <jo@test.com>"
+        assert out["body"][0]["content"] == "Body"
+        assert out["raw"] == "Subject: Hello\r\n\r\nBody"
+
+    def test_raw_too_large_is_reported_not_silently_missing(self, email_tools):
+        tools, _ = self._client(email_tools, {"id": "5", "content": {"url": "https://z/service/content/get?id=5"}})
+        out = tools["get_email"]("5", include_raw=True)
+        assert out["subject"] == "Hello"
+        assert "raw" not in out and "too large" in out["raw_unavailable"]
+
+    def test_no_raw_makes_one_request(self, email_tools):
+        tools, client = self._client(email_tools, {})
+        tools["get_email"]("5")
+        assert client.get_message.call_count == 1
+
+
+class TestTrackingPixels:
+    def _out(self, img):
+        return _sanitize_html(f"<p>a</p>{img}", allow_images=True)
+
+    def test_one_by_one_attribute_pixel_removed(self):
+        assert "<img" not in self._out('<img width="1" height="1" dfsrc="https://t.test/o.gif">')
+
+    def test_single_tiny_dimension_removed(self):
+        assert "<img" not in self._out('<img height="0" src="https://t.test/o.gif">')
+
+    def test_css_sized_pixel_removed(self):
+        assert "<img" not in self._out('<img style="width:1px;height:1px" src="https://t.test/o.gif">')
+
+    def test_hidden_image_removed(self):
+        assert "<img" not in self._out('<img style="display:none" src="https://t.test/o.gif">')
+        assert "<img" not in self._out('<img style="visibility: hidden" src="https://t.test/o.gif">')
+
+    def test_real_images_kept(self):
+        assert "logo.png" in self._out('<img width="400" height="158" src="https://x.test/logo.png">')
+        assert "max-width:100%" in self._out('<img style="width:auto;max-width:100%" src="https://x.test/b.png">')
+        assert "banner.png" in self._out('<img src="https://x.test/banner.png">')
+
+    def test_malformed_sizes_do_not_crash(self):
+        for img in ('<img width="." src="https://x.test/a.png">',
+                    '<img width="1.2.3" src="https://x.test/a.png">',
+                    '<img style="width:..px" src="https://x.test/a.png">'):
+            assert "a.png" in self._out(img)
