@@ -618,3 +618,64 @@ class TestTrackingPixels:
                     '<img width="1.2.3" src="https://x.test/a.png">',
                     '<img style="width:..px" src="https://x.test/a.png">'):
             assert "a.png" in self._out(img)
+
+
+# --- download_attachment: keep writes inside the chosen folder ---
+
+
+class TestDownloadAttachmentPaths:
+    def _download(self, email_tools, tmp_path, server_name, filename=None, content=b"data"):
+        tools, client = email_tools
+        client.get_attachment_content = MagicMock(return_value=(content, server_name, "application/pdf"))
+        out_dir = tmp_path / "downloads"
+        out_dir.mkdir(exist_ok=True)
+        result = tools["download_attachment"]("7", "2", str(out_dir), filename=filename)
+        return result, out_dir
+
+    def _assert_inside(self, result, out_dir):
+        from pathlib import Path
+        saved = Path(result["path"])
+        assert result["success"] is True
+        assert saved.parent == out_dir.resolve()
+        assert saved.exists()
+
+    def test_traversal_in_sender_filename_stays_inside(self, email_tools, tmp_path):
+        result, out_dir = self._download(email_tools, tmp_path, "../.bashrc")
+        self._assert_inside(result, out_dir)
+        assert not (tmp_path / ".bashrc").exists()
+        assert result["filename"] == "bashrc"
+
+    def test_absolute_sender_filename_stays_inside(self, email_tools, tmp_path):
+        target = tmp_path / "elsewhere" / "evil"
+        result, out_dir = self._download(email_tools, tmp_path, str(target))
+        self._assert_inside(result, out_dir)
+        assert result["filename"] == "evil" and not target.exists()
+
+    def test_windows_traversal_and_drive_stay_inside(self, email_tools, tmp_path):
+        for name, expected in (("..\\..\\Startup\\evil.bat", "evil.bat"), ("C:evil.exe", "Cevil.exe")):
+            result, out_dir = self._download(email_tools, tmp_path, name)
+            self._assert_inside(result, out_dir)
+            assert result["filename"] == expected
+
+    def test_caller_supplied_filename_is_sanitised_too(self, email_tools, tmp_path):
+        result, out_dir = self._download(email_tools, tmp_path, "report.pdf", filename="../../x.pdf")
+        self._assert_inside(result, out_dir)
+        assert result["filename"] == "x.pdf"
+
+    def test_existing_file_is_not_overwritten(self, email_tools, tmp_path):
+        first, out_dir = self._download(email_tools, tmp_path, "report.pdf", content=b"first")
+        second, _ = self._download(email_tools, tmp_path, "report.pdf", content=b"second")
+        assert first["filename"] == "report.pdf" and second["filename"] == "report (1).pdf"
+        assert (out_dir / "report.pdf").read_bytes() == b"first"
+        assert (out_dir / "report (1).pdf").read_bytes() == b"second"
+
+    def test_unusable_names_fall_back_to_generated_name(self, email_tools, tmp_path):
+        for name in ("..", "/", "...", "\x00\x01"):
+            result, out_dir = self._download(email_tools, tmp_path, name)
+            self._assert_inside(result, out_dir)
+            assert result["filename"].startswith("attachment_7_2")
+
+    def test_control_characters_removed(self, email_tools, tmp_path):
+        result, out_dir = self._download(email_tools, tmp_path, "inv\x00oice\n.pdf")
+        self._assert_inside(result, out_dir)
+        assert result["filename"] == "invoice.pdf"

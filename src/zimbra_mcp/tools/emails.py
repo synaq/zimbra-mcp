@@ -685,16 +685,21 @@ def register_email_tools(mcp: FastMCP, client: ZimbraClient, config: ZimbraConfi
         # Download attachment content
         content, original_filename, content_type = client.get_attachment_content(msg_id, part_id)
 
-        # Determine final filename
-        final_filename = filename or original_filename
+        # Determine final filename. Both the sender's filename and a caller-chosen one are
+        # untrusted: reduce either to a bare name so the file can only land in save_dir.
+        final_filename = _safe_filename(filename or original_filename or "")
         if not final_filename or final_filename == "attachment":
             # Fallback: use part_id and guess extension from content_type
             ext = _guess_extension(content_type)
             final_filename = f"attachment_{msg_id}_{part_id.replace('.', '_')}{ext}"
 
-        # Write file
-        file_path = save_dir / final_filename
-        file_path.write_bytes(content)
+        file_path = _unused_path(save_dir, final_filename)
+        if file_path.resolve().parent != save_dir:
+            return {"success": False, "error": f"Refusing to write outside {save_dir}"}
+        final_filename = file_path.name
+        # "xb" fails rather than overwrite if the file appeared since the name was chosen.
+        with open(file_path, "xb") as f:
+            f.write(content)
 
         return {
             "success": True,
@@ -765,6 +770,30 @@ def register_email_tools(mcp: FastMCP, client: ZimbraClient, config: ZimbraConfi
                 "subject": subject,
                 "body_preview": full_body[:200] + "..." if len(full_body) > 200 else full_body,
             }
+
+
+def _safe_filename(name: str) -> str:
+    """Reduce an untrusted attachment name to a bare file name.
+
+    Drops any directory part (both / and \\, so Windows-style paths are caught on every
+    platform), control characters, characters Windows forbids in names (including ':'
+    so "C:evil" can't become a drive-relative path), and leading dots (no hidden files,
+    no "." or ".."). Returns "" when nothing usable is left.
+    """
+    name = re.split(r"[\\/]", name)[-1]
+    name = re.sub(r'[\x00-\x1f\x7f<>:"|?*]', "", name)
+    return name.strip().lstrip(".").strip()
+
+
+def _unused_path(directory: Path, name: str) -> Path:
+    """Return directory/name, or directory/"stem (n)suffix" if that file already exists."""
+    candidate = directory / name
+    stem, suffix = Path(name).stem, Path(name).suffix
+    n = 1
+    while candidate.exists():
+        candidate = directory / f"{stem} ({n}){suffix}"
+        n += 1
+    return candidate
 
 
 def _guess_extension(content_type: str) -> str:
