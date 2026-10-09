@@ -86,6 +86,9 @@ is generated from the HTML.
   reversed); images with no usable source (`cid:` parts, `file:///` paths) are removed rather
   than left as empty boxes. Tracking pixels (images hidden, or 1px or smaller in either
   dimension) are removed so they don't load in the recipient's client. On Windows the `tzdata` package supplies the time-zone database.
+- **Plain-text replies get an HTML quote too:** a reply given only as `body` is converted to simple
+  HTML (paragraphs and line breaks), so mail clients such as Outlook show the original in a quote
+  block instead of `> ` lines. The plain-text part keeps classic `> ` quoting for text-only clients.
 - **Update in place:** pass `draft_id` to `create_draft` to replace an existing draft's content
   instead of creating a new one.
 
