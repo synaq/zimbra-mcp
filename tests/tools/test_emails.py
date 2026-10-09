@@ -612,3 +612,9 @@ class TestTrackingPixels:
         assert "logo.png" in self._out('<img width="400" height="158" src="https://x.test/logo.png">')
         assert "max-width:100%" in self._out('<img style="width:auto;max-width:100%" src="https://x.test/b.png">')
         assert "banner.png" in self._out('<img src="https://x.test/banner.png">')
+
+    def test_malformed_sizes_do_not_crash(self):
+        for img in ('<img width="." src="https://x.test/a.png">',
+                    '<img width="1.2.3" src="https://x.test/a.png">',
+                    '<img style="width:..px" src="https://x.test/a.png">'):
+            assert "a.png" in self._out(img)

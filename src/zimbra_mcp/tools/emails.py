@@ -110,7 +110,8 @@ def _is_tracking_pixel(img: Any) -> bool:
     sizes = [img.get("width"), img.get("height")]
     sizes += re.findall(r"(?:^|;)(?:width|height):([\d.]+)px", style)
     for size in sizes:
-        m = re.match(r"\s*([\d.]+)", str(size or ""))
+        # Sender-controlled values: anything that isn't a plain number is ignored, never raised.
+        m = re.match(r"\s*(\d+(?:\.\d+)?|\.\d+)(?![\d.])", str(size or ""))
         if m and float(m.group(1)) <= 1:
             return True
     return False
