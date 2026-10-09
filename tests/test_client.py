@@ -510,3 +510,16 @@ class TestHtmlBodies:
         )
         mp = _get_request_params(connected_client)["m"]["mp"]
         assert mp["ct"] == "multipart/alternative"
+
+
+class TestTimezone:
+    def test_reads_account_time_zone_once(self, connected_client):
+        _setup_response(connected_client, _make_ok_response(
+            "GetPrefsResponse", {"_attrs": {"zimbraPrefTimeZoneId": "Africa/Harare"}}))
+        assert connected_client.get_timezone() == "Africa/Harare"
+        assert connected_client.get_timezone() == "Africa/Harare"
+        assert connected_client._comm.send_request.call_count == 1
+
+    def test_defaults_to_utc_on_error(self, connected_client):
+        connected_client._comm.gen_request.side_effect = RuntimeError("boom")
+        assert connected_client.get_timezone() == "UTC"

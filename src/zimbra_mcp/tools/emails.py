@@ -51,11 +51,15 @@ def _html_to_text(html: str) -> str:
         p.insert_after("\n")
     for li in soup.find_all("li"):
         li.insert_before("- ")
-    for block in soup.find_all(["li", "tr", "div", "h1", "h2", "h3", "h4", "ul", "ol", "table"]):
+    for block in soup.find_all(["li", "tr", "div", "h1", "h2", "h3", "h4", "h5", "h6",
+                                "ul", "ol", "table", "blockquote"]):
         block.insert_after("\n")
+    for cell in soup.find_all(["td", "th"]):
+        cell.insert_after(" ")
 
-    # Extract text
-    text = soup.get_text(separator=" ")
+    # Extract text. No separator: inline tags (<b>, <a>) must not add spaces before punctuation;
+    # block and cell boundaries were marked explicitly above.
+    text = soup.get_text()
 
     # Clean up multiple spaces and empty lines
     text = re.sub(r"[ \t]+", " ", text)
@@ -96,29 +100,47 @@ def _sanitize_html(html: str, allow_images: bool = False) -> str:
     """Reduce HTML to a safe formatting subset.
 
     Model-written HTML gets the strict set (no images). Quoted originals keep http(s)
-    images; inline cid: images are dropped because the reply does not carry the parts.
+    images. Zimbra's GetMsg (html=1) renames image src to dfsrc so clients don't auto-load
+    them; that is reversed here. Images left without a usable http(s) source (cid: parts the
+    reply doesn't carry, file:/// paths, data:) are removed rather than shown as empty boxes.
     """
     tags = set(_HTML_TAGS)
     if allow_images:
         soup = BeautifulSoup(html, "html.parser")
-        for img in soup.find_all("img", src=re.compile(r"^\s*cid:", re.I)):
-            img.decompose()
+        for img in soup.find_all("img"):
+            if not img.get("src") and img.get("dfsrc"):
+                img["src"] = img["dfsrc"]
         html = str(soup)
         tags.add("img")
-    return nh3.clean(
+    out = nh3.clean(
         html,
         tags=tags,
         attributes=_HTML_ATTRIBUTES,
         url_schemes={"http", "https", "mailto"},
         filter_style_properties=_STYLE_PROPERTIES,
     )
+    if allow_images:
+        # nh3 strips src values with disallowed schemes but leaves the <img> tag behind.
+        soup = BeautifulSoup(out, "html.parser")
+        for img in soup.find_all("img"):
+            if not img.get("src"):
+                img.decompose()
+        out = str(soup)
+    # nh3's style filter re-serialises "Arial, sans-serif" as "Arial , sans-serif". BeautifulSoup
+    # single-quotes a style value that contains double quotes, so match either quote style.
+    return re.sub(r"""style=(["'])(.*?)\1""", lambda m: re.sub(r"\s+,", ",", m.group(0)), out)
 
 
-def _format_date(ms: Any) -> str:
-    """Format a Zimbra millisecond timestamp the way the quoting header shows it."""
+def _format_date(ms: Any, tz_name: str = "UTC") -> str:
+    """Format a Zimbra millisecond timestamp in the account's time zone (UTC if unknown)."""
     from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     try:
-        return datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+        tz = ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        tz = timezone.utc
+    try:
+        return datetime.fromtimestamp(int(ms) / 1000, tz=tz).strftime("%Y-%m-%d %H:%M")
     except (ValueError, TypeError):
         return str(ms or "")
 
@@ -158,7 +180,7 @@ def _prepare_html_with_original(
         ("From", esc(_extract_address(addrs, "f") or "")),
         ("To", esc(", ".join(_extract_addresses(addrs, "t")))),
         ("Cc", esc(", ".join(_extract_addresses(addrs, "c")))),
-        ("Sent", esc(_format_date(orig_msg.get("d", "")))),
+        ("Sent", esc(_format_date(orig_msg.get("d", ""), client.get_timezone()))),
         ("Subject", esc(orig_msg.get("su", ""))),
     ]
     header = "".join(f"<b>{k}: </b>{v}<br>" for k, v in rows if v)
@@ -250,14 +272,7 @@ def _prepare_body_with_original(
     orig_from = _extract_address(orig_msg.get("e", []), "f") or ""
     orig_date = orig_msg.get("d", "")
     if orig_date:
-        from datetime import datetime, timezone
-        try:
-            dt = datetime.fromtimestamp(
-                int(orig_date) / 1000, tz=timezone.utc,
-            )
-            orig_date = dt.strftime("%Y-%m-%d %H:%M")
-        except (ValueError, TypeError):
-            pass
+        orig_date = _format_date(orig_date, client.get_timezone())
 
     if reply_type == "w":
         orig_to = _extract_addresses(orig_msg.get("e", []), "t")
@@ -370,7 +385,9 @@ def register_email_tools(mcp: FastMCP, client: ZimbraClient, config: ZimbraConfi
         Returns:
             Complete email with body, headers, and attachments
         """
-        result = client.get_message(msg_id, raw=include_raw)
+        # Zimbra's raw mode returns only the source, not the parsed message, so raw is a
+        # second request rather than a flag on the first.
+        result = client.get_message(msg_id)
 
         msg = result.get("m", {})
         if isinstance(msg, list):
@@ -405,8 +422,20 @@ def register_email_tools(mcp: FastMCP, client: ZimbraClient, config: ZimbraConfi
             "attachments": attachments,
         }
 
-        if include_raw and msg.get("content"):
-            email_detail["raw"] = msg.get("content")
+        if include_raw:
+            raw_msg = client.get_message(msg_id, raw=True).get("m", {})
+            if isinstance(raw_msg, list):
+                raw_msg = raw_msg[0] if raw_msg else {}
+            content = raw_msg.get("content")
+            if isinstance(content, dict):
+                if content.get("_content"):
+                    email_detail["raw"] = content["_content"]
+                else:
+                    email_detail["raw_unavailable"] = (
+                        "message too large for inline raw source; Zimbra only offered a download URL"
+                    )
+            elif content:
+                email_detail["raw"] = content
 
         return email_detail
 
@@ -738,7 +767,8 @@ def _extract_address(addresses: list[dict], addr_type: str) -> str | None:
         addresses = [addresses]
     for addr in addresses:
         if addr.get("t") == addr_type:
-            name = addr.get("d", "")
+            # "p" is the full personal name ("Jonathan McCann"); "d" is Zimbra's short form ("Jonathan").
+            name = addr.get("p") or addr.get("d", "")
             email = addr.get("a", "")
             if name:
                 return f"{name} <{email}>"
@@ -753,7 +783,7 @@ def _extract_addresses(addresses: list[dict], addr_type: str) -> list[str]:
     result = []
     for addr in addresses:
         if addr.get("t") == addr_type:
-            name = addr.get("d", "")
+            name = addr.get("p") or addr.get("d", "")
             email = addr.get("a", "")
             if name:
                 result.append(f"{name} <{email}>")
