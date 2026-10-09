@@ -484,12 +484,34 @@ class TestCreateDraftHtml:
         html = client.create_draft.call_args.kwargs["body_html"]
         assert "line1 &lt;tag&gt;<br>" in html and "line2" in html
 
-    def test_plain_reply_unchanged_when_no_html(self, email_tools):
+    def test_plain_reply_gets_html_quote_without_angle_brackets(self, email_tools):
+        # A plain-text reply used to quote the original as "> " lines only, which mail
+        # clients like Outlook show as-is. It now also gets an HTML part with a quote block.
         tools, client = email_tools
         client.get_message = MagicMock(return_value=HTML_ORIGINAL)
         client.create_draft = MagicMock(return_value={"m": {"id": "76"}})
-        tools["create_draft"](to=["j@test.com"], subject="RE", body="Thanks",
+        tools["create_draft"](to=["j@test.com"], subject="RE",
+                              body="Thanks Jonathan,\n\nSee you <Tuesday> & then.\nRegards",
                               orig_msg_id="9", reply_type="r")
+        html = client.create_draft.call_args.kwargs["body_html"]
+        assert html is not None and "<blockquote" in html
+        assert "<p>Thanks Jonathan,</p>" in html
+        assert "See you &lt;Tuesday&gt; &amp; then.<br>Regards" in html
+        assert "&gt; Original" not in html and "<b>bold</b>" in html
+        plain = client.create_draft.call_args.args[2]
+        assert "> Original plain" in plain  # text-only clients keep classic quoting
+
+    def test_plain_draft_without_reply_stays_plain(self, email_tools):
+        tools, client = email_tools
+        client.create_draft = MagicMock(return_value={"m": {"id": "77"}})
+        tools["create_draft"](to=["j@test.com"], subject="Hi", body="Plain note")
+        assert client.create_draft.call_args.kwargs["body_html"] is None
+
+    def test_plain_reply_with_original_as_attachment_stays_plain(self, email_tools):
+        tools, client = email_tools
+        client.create_draft = MagicMock(return_value={"m": {"id": "78"}})
+        tools["create_draft"](to=["j@test.com"], subject="FW", body="See attached",
+                              orig_msg_id="9", reply_type="w", include_original="attachment")
         assert client.create_draft.call_args.kwargs["body_html"] is None
 
 

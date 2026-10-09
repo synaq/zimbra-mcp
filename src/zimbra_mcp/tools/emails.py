@@ -246,9 +246,22 @@ def _compose(
         full_body, attach_msg_id = _prepare_body_with_original(
             client, body, orig_msg_id, reply_type, include_original,
         )
-        if full_html is not None and include_original == "inline":
+        if include_original == "inline":
+            # A plain-text-only reply quotes the original as "> " lines, which mail clients
+            # such as Outlook display verbatim. Give it an HTML part too, so the original
+            # shows as a quote block; text-only clients still get the "> " version.
+            if full_html is None:
+                full_html = _text_to_html(body)
             full_html = _prepare_html_with_original(client, full_html, orig_msg_id, reply_type)
     return full_body, full_html, attach_msg_id, include_original
+
+
+def _text_to_html(text: str) -> str:
+    """Render plain text as simple HTML: blank-line-separated paragraphs, line breaks kept."""
+    paragraphs = [p for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
+    return "".join(
+        "<p>" + html_lib.escape(p.strip()).replace("\n", "<br>") + "</p>" for p in paragraphs
+    )
 
 
 def _prepare_body_with_original(
@@ -600,11 +613,13 @@ def register_email_tools(mcp: FastMCP, client: ZimbraClient, config: ZimbraConfi
         the original message in the body). Use "attachment" to attach it as .eml
         instead, or "none" to explicitly exclude it.
 
-        For formatted mail, pass body_html (paragraphs, bold, lists, links, tables,
-        inline styles). The message then carries both HTML and plain text; if body
-        is empty, the plain text is generated from body_html. Replies quote the
-        original's HTML so the thread keeps its formatting. Scripts, images and
-        external resources in body_html are removed.
+        Prefer body_html for replies and for any formatted mail (paragraphs, bold,
+        lists, links, tables, inline styles). The message then carries both HTML and
+        plain text; if body is empty, the plain text is generated from body_html.
+        Replies quote the original's HTML in a quote block so the thread keeps its
+        formatting; a reply given only as plain text is converted to simple HTML for
+        the same result. Scripts, images and external resources in body_html are
+        removed.
 
         Args:
             to: List of primary recipients
