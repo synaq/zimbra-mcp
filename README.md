@@ -62,7 +62,7 @@ mcp dev src/zimbra_mcp/server.py
 |------|-------------|
 | `search_emails` | Search with Zimbra syntax (in:inbox, from:, tag:, etc.) |
 | `get_email` | Retrieve an email by ID with full body |
-| `download_attachment` | Download an attachment to a local file |
+| `download_attachment` | Download an attachment into a local folder. The file name (from the email or the caller) is reduced to a bare name, so it can't write outside the folder; an existing file is never overwritten (a numbered name such as `report (1).pdf` is used instead) |
 | `list_folders` | List all mail folders |
 | `search_folder` | Search for a folder by name or path (case-insensitive partial match) |
 | `move_emails` | Move emails to a folder |
