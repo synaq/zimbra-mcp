@@ -1,5 +1,6 @@
 """Tests for email tools."""
 
+import inspect
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -158,19 +159,14 @@ class TestDeleteEmailsTool:
 
         result = tools["delete_emails"](["1", "2"])
 
-        client.delete_messages.assert_called_once_with(["1", "2"], hard_delete=False)
+        client.delete_messages.assert_called_once_with(["1", "2"])
         assert result["success"] is True
         assert result["deleted_count"] == 2
-        assert result["hard_delete"] is False
+        assert result["moved_to"] == "Trash"
 
-    def test_hard_delete(self, email_tools):
-        tools, client = email_tools
-        client.delete_messages = MagicMock()
-
-        result = tools["delete_emails"](["5"], hard_delete=True)
-
-        client.delete_messages.assert_called_once_with(["5"], hard_delete=True)
-        assert result["hard_delete"] is True
+    def test_no_hard_delete_option(self, email_tools):
+        tools, _ = email_tools
+        assert "hard_delete" not in inspect.signature(tools["delete_emails"]).parameters
 
 
 class TestSearchFolderTool:

@@ -205,13 +205,6 @@ class TestDeleteMessages:
         assert params["action"]["op"] == "trash"
         assert params["action"]["id"] == "1,2"
 
-    def test_hard_delete(self, connected_client):
-        resp = _make_ok_response("MsgActionResponse", {"action": {}})
-        _setup_response(connected_client, resp)
-
-        connected_client.delete_messages(["5"], hard_delete=True)
-        params = _get_request_params(connected_client)
-        assert params["action"]["op"] == "delete"
 
 
 class TestCreateDraft:
@@ -474,7 +467,7 @@ class TestDeleteContacts:
         connected_client.delete_contacts(["100", "101"])
         params = _get_request_params(connected_client)
         assert params["action"]["id"] == "100,101"
-        assert params["action"]["op"] == "delete"
+        assert params["action"]["op"] == "trash"
 
 
 # --- HTML bodies and draft updates ---

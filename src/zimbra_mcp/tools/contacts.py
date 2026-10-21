@@ -270,7 +270,7 @@ def register_contact_tools(mcp: FastMCP, client: ZimbraClient) -> None:
 
     @mcp.tool()
     def delete_contact(contact_ids: list[str]) -> dict[str, Any]:
-        """Delete one or more contacts.
+        """Delete one or more contacts by moving them to Trash (soft delete only).
 
         Args:
             contact_ids: List of contact IDs to delete

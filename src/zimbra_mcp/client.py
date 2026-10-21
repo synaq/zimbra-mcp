@@ -228,21 +228,19 @@ class ZimbraClient:
         }
         return self.request("MsgActionRequest", "urn:zimbraMail", params)
 
-    def delete_messages(self, msg_ids: list[str], hard_delete: bool = False) -> dict[str, Any]:
-        """Delete messages.
+    def delete_messages(self, msg_ids: list[str]) -> dict[str, Any]:
+        """Move messages to Trash. Soft delete only: there is no permanent delete.
 
         Args:
             msg_ids: List of message IDs
-            hard_delete: If True, permanently delete; otherwise move to Trash
 
         Returns:
             Operation result
         """
-        op = "delete" if hard_delete else "trash"
         params = {
             "action": {
                 "id": ",".join(msg_ids),
-                "op": op,
+                "op": "trash",
             }
         }
         return self.request("MsgActionRequest", "urn:zimbraMail", params)
@@ -603,7 +601,7 @@ class ZimbraClient:
         return self.request("ModifyContactRequest", "urn:zimbraMail", params)
 
     def delete_contacts(self, contact_ids: list[str]) -> dict[str, Any]:
-        """Delete contacts.
+        """Move contacts to Trash. Soft delete only: there is no permanent delete.
 
         Args:
             contact_ids: List of contact IDs
@@ -614,7 +612,7 @@ class ZimbraClient:
         params = {
             "action": {
                 "id": ",".join(contact_ids),
-                "op": "delete",
+                "op": "trash",
             }
         }
         return self.request("ContactActionRequest", "urn:zimbraMail", params)
