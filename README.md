@@ -67,7 +67,7 @@ mcp dev src/zimbra_mcp/server.py
 | `search_folder` | Search for a folder by name or path (case-insensitive partial match) |
 | `move_emails` | Move emails to a folder |
 | `mark_as_read` | Mark emails as read or unread |
-| `delete_emails` | Delete emails (soft delete to Trash, or hard delete) |
+| `delete_emails` | Move emails to Trash (soft delete only; no permanent delete) |
 | `create_draft` | Create or update a draft (plain text or HTML), with optional reply/forward support |
 | `send_email` | Send an email directly (opt-in, requires `ZIMBRA_ENABLE_SEND=true`) |
 
@@ -137,7 +137,7 @@ Examples:
 | `get_contact` | Retrieve a contact by ID |
 | `create_contact` | Create a contact (name, email, phone, company, etc.) |
 | `update_contact` | Update specific fields of an existing contact |
-| `delete_contact` | Delete one or more contacts |
+| `delete_contact` | Move one or more contacts to Trash (soft delete only) |
 
 ### Tags
 
